@@ -4,3 +4,5 @@ data.json.bak
 .data-*.tmp
 server.log
 .DS_Store
+.certs/
+__pycache__/
