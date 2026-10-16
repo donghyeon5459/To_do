@@ -6,3 +6,4 @@ server.log
 .DS_Store
 .certs/
 __pycache__/
+backup.log

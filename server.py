@@ -152,9 +152,15 @@ class Handler(BaseHTTPRequestHandler):
         # 헤더 없이 127.0.0.1 로 직접 연 경우(이 컴퓨터에서 직접)만 허용
         return (self.headers.get("Host") or "").split(":")[0] in ("127.0.0.1", "localhost")
 
+    def _deny(self):
+        ip = self.client_address[0]
+        who = self.headers.get("Tailscale-User-Login") or _whois.get(ip, (0, None))[1]
+        print(f"접속 거부 {ip} (계정: {who})", file=sys.stderr, flush=True)
+        self._send(403, {"error": "forbidden"})
+
     def do_GET(self):
         if not self._allowed():
-            return self._send(403, {"error": "forbidden"})
+            return self._deny()
         path = self.path.split("?")[0]
         if path in ("/", "/todo.html"):
             with open(PAGE, "rb") as f:
@@ -167,7 +173,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_PUT(self):
         if not self._allowed():
-            return self._send(403, {"error": "forbidden"})
+            return self._deny()
         if self.path.split("?")[0] != "/api/data":
             return self._send(404, {"error": "not found"})
         try:
