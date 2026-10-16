@@ -1,0 +1,32 @@
+#!/bin/bash
+# 맥미니에서 한 번만 실행하세요. 로그인하면 서버가 자동으로 켜지고, 꺼져도 다시 살아납니다.
+set -e
+DIR="$(cd "$(dirname "$0")" && pwd)"
+PY="$(command -v python3 || true)"
+if [ -z "$PY" ]; then
+  echo "python3가 없어요. 터미널에서 'xcode-select --install' 을 먼저 실행해 주세요."
+  exit 1
+fi
+LABEL="com.mytodo.server"
+PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
+mkdir -p "$HOME/Library/LaunchAgents"
+
+cat > "$PLIST" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>$LABEL</string>
+  <key>ProgramArguments</key><array><string>$PY</string><string>$DIR/server.py</string></array>
+  <key>WorkingDirectory</key><string>$DIR</string>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>StandardOutPath</key><string>$DIR/server.log</string>
+  <key>StandardErrorPath</key><string>$DIR/server.log</string>
+</dict>
+</plist>
+EOF
+
+launchctl bootout "gui/$(id -u)" "$PLIST" 2>/dev/null || true
+launchctl bootstrap "gui/$(id -u)" "$PLIST"
+echo "설치 완료. 이 맥에서 http://127.0.0.1:8787 로 열어 보세요."

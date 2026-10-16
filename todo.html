@@ -1,0 +1,546 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="할 일">
+<meta name="theme-color" content="#26292e">
+<title>내 할 일</title>
+<style>
+:root{--bg:#f6f5f2;--panel:#fff;--side:#26292e;--sidefg:#c9ccd1;--fg:#1f2328;--mute:#6b7280;--line:#e4e2dc;--accent:#2f6fed;--accent-bg:#e8f0fe;--danger:#d14343;--now:#d9480f;--later:#2b8a3e;--mid:#a16207}
+@media (prefers-color-scheme:dark){:root{--bg:#16181b;--panel:#1f2226;--side:#0f1113;--sidefg:#9aa0a8;--fg:#e6e8eb;--mute:#8b929b;--line:#2d3136;--accent:#6b9bff;--accent-bg:#22304d;--danger:#f07070;--now:#ff8a4c;--later:#5fc27a;--mid:#e0b341}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 -apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Malgun Gothic",sans-serif;display:grid;grid-template-columns:190px 1fr;min-height:100vh}
+aside{background:var(--side);color:var(--sidefg);padding:20px 12px;display:flex;flex-direction:column;gap:4px;position:sticky;top:0;height:100vh}
+aside .logo{color:#fff;font-weight:700;font-size:17px;padding:0 10px 14px}
+aside button.nav{all:unset;cursor:pointer;padding:9px 10px;border-radius:8px;display:flex;justify-content:space-between;align-items:center}
+aside button.nav:hover{background:rgba(255,255,255,.07)}
+aside button.nav.on{background:var(--accent);color:#fff}
+aside .badge{font-size:12px;background:rgba(255,255,255,.18);border-radius:10px;padding:0 7px}
+aside .foot{margin-top:auto;display:flex;flex-direction:column;gap:6px;font-size:13px}
+aside .foot button{all:unset;cursor:pointer;padding:6px 10px;border-radius:6px;border:1px solid rgba(255,255,255,.18);text-align:center}
+aside .foot button:hover{background:rgba(255,255,255,.07)}
+main{padding:28px 32px 60px;max-width:1100px;width:100%}
+h1{margin:0 0 18px;font-size:22px}
+h2{margin:0 0 10px;font-size:16px}
+.warn{background:#fff4e5;color:#8a4b00;border:1px solid #ffd8a8;border-radius:8px;padding:8px 12px;margin-bottom:14px;font-size:13px}
+.matrix{display:grid;grid-template-columns:44px 1fr 1fr;gap:12px 16px}
+.axis{display:flex;align-items:center;justify-content:center;color:var(--mute);font-size:13px;font-weight:600}
+.axis.rowl{writing-mode:vertical-rl;letter-spacing:2px}
+.box .hint{margin:-6px 0 10px;font-size:12px;color:var(--mute)}
+.box.over{outline:2px dashed var(--accent);outline-offset:-2px}
+.grip{cursor:grab;color:var(--mute);touch-action:none;user-select:none;-webkit-user-select:none;padding:0 2px;margin-top:1px;letter-spacing:-3px;font-size:14px;line-height:1.7}
+.grip:hover{color:var(--accent)}
+.box li{cursor:grab}
+.box li .t{cursor:grab;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
+li.dragging{opacity:.35}
+.box li input,.box li .del,.box li select{cursor:pointer}
+li.drop-before{box-shadow:0 -2px 0 var(--accent)}
+li.drop-after{box-shadow:0 2px 0 var(--accent)}
+li.ghost{position:fixed;left:0;top:0;z-index:100;pointer-events:none;margin:0;background:var(--panel);border-radius:6px;box-shadow:0 0 0 8px var(--panel),0 0 0 9px var(--accent),0 12px 28px rgba(0,0,0,.3)}
+body.dragging-now{user-select:none;-webkit-user-select:none}
+body.dragging-now,body.dragging-now *{cursor:grabbing!important}
+select.mv{all:unset;cursor:pointer;color:var(--mute);padding:0 6px;border-radius:6px;line-height:1.6;font-size:13px}
+select.mv:hover{background:var(--accent-bg);color:var(--accent)}
+.box,.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px}
+.box h2.now{color:var(--now)}.box h2.later{color:var(--later)}.box h2.mid{color:var(--mid)}.box h2.low{color:var(--mute)}
+ul{list-style:none;margin:10px 0 0;padding:0}
+li{display:flex;align-items:flex-start;gap:8px;padding:7px 0;border-top:1px solid var(--line)}
+li:first-child{border-top:0}
+li .t{flex:1;word-break:break-word;cursor:text}
+li.done .t{text-decoration:line-through;color:var(--mute)}
+li input[type=checkbox]{margin-top:5px;width:16px;height:16px}
+li .date{color:var(--mute);font-size:12px;white-space:nowrap;margin-top:2px}
+.ic{all:unset;cursor:pointer;color:var(--mute);padding:0 6px;border-radius:6px;line-height:1.6}
+.ic:hover{background:var(--accent-bg);color:var(--accent)}
+.ic.del:hover{color:var(--danger);background:transparent}
+input[type=text],input[type=password],textarea,input[type=search]{width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--fg);font:inherit}
+textarea{min-height:140px;resize:vertical}
+input:focus,textarea:focus{outline:2px solid var(--accent);outline-offset:-1px}
+.btn{cursor:pointer;border:0;background:var(--accent);color:#fff;padding:8px 14px;border-radius:8px;font:inherit;white-space:nowrap}
+.btn.ghost{background:transparent;color:var(--fg);border:1px solid var(--line)}
+.row{display:flex;gap:8px}
+.sec{display:flex;justify-content:space-between;align-items:center;margin:28px 0 12px}
+.sec h2{margin:0}
+.works{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:16px}
+.card header{display:flex;align-items:center;gap:4px;margin-bottom:10px}
+.card header h3{margin:0;font-size:16px;flex:1}
+.empty{color:var(--mute);font-size:13px;padding:8px 0}
+.small{font-size:12px;color:var(--mute)}
+.toolbar{display:flex;gap:8px;margin-bottom:14px}
+.list{display:grid;gap:12px}
+.kv{display:grid;grid-template-columns:70px 1fr auto;gap:6px 10px;align-items:center;margin-top:8px}
+.kv .k{color:var(--mute);font-size:13px}
+.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;word-break:break-all}
+.body{white-space:pre-wrap;word-break:break-word;margin-top:8px}
+a{color:var(--accent)}
+details summary{cursor:pointer;font-weight:600;list-style:none;display:flex;align-items:center;gap:6px}
+details summary::-webkit-details-marker{display:none}
+details summary::before{content:"▸";color:var(--mute)}
+details[open] summary::before{content:"▾"}
+dialog{border:1px solid var(--line);border-radius:14px;background:var(--panel);color:var(--fg);padding:20px;width:min(480px,92vw)}
+dialog::backdrop{background:rgba(0,0,0,.4)}
+dialog label{display:block;font-size:13px;color:var(--mute);margin:12px 0 4px}
+dialog .actions{display:flex;justify-content:flex-end;gap:8px;margin-top:18px}
+@media (max-width:760px){
+ body{grid-template-columns:1fr}
+ aside{position:fixed;top:auto;bottom:0;left:0;right:0;height:auto;flex-direction:row;gap:4px;padding:6px 8px calc(6px + env(safe-area-inset-bottom));z-index:10}
+ aside .logo,aside .foot,aside #sync{display:none}
+ aside button.nav{flex:1;justify-content:center;gap:6px;padding:11px 6px;font-size:14px}
+ main{padding:calc(16px + env(safe-area-inset-top)) 16px 100px}
+ .matrix{grid-template-columns:1fr}.axis{display:none}
+ input[type=text],input[type=password],input[type=search],textarea{font-size:16px}
+ li input[type=checkbox]{width:22px;height:22px}
+ .ic,select.mv{padding:6px 10px}
+ .grip{padding:4px 8px;margin-top:-2px;font-size:16px}
+ .works{grid-template-columns:1fr}
+ .sec{flex-direction:column;align-items:stretch;gap:10px}
+ #addWork input{width:100%!important}
+}
+</style>
+</head>
+<body>
+<aside>
+  <div class="logo">📝 내 할 일</div>
+  <div class="small" id="sync" style="padding:0 10px 12px"></div>
+  <button class="nav" data-tab="todo">할 일 <span class="badge" id="cnt"></span></button>
+  <button class="nav" data-tab="acc">아이디 / 비번</button>
+  <button class="nav" data-tab="guide">방법 모음</button>
+  <div class="foot">
+    <button id="export">백업 저장</button>
+    <button id="import">백업 불러오기</button>
+    <input type="file" id="file" accept=".json,application/json" hidden>
+  </div>
+</aside>
+<main id="main"></main>
+<dialog id="dlg"><form id="dlgForm" method="dialog"></form></dialog>
+
+<script>
+const KEY = 'mytodo_v1';
+let saveFailed = false;
+const uid = () => Math.random().toString(36).slice(2, 10);
+const today = () => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); };
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const linkify = s => esc(s).replace(/https?:\/\/[^\s<]+/g, u => `<a href="${u}" target="_blank" rel="noopener">${u}</a>`);
+
+function seed() {
+  return {
+    todos: [
+      { id: uid(), text: 'ISA 통장 만들기', group: 'q1', done: false },
+      { id: uid(), text: '네이버광고 - 라셀, 모모, 라떼 광고소재 수정하기', group: 'q1', done: false },
+      { id: uid(), text: '인스타 ISA 영상 보기', group: 'q2', done: false },
+      { id: uid(), text: '아는개발자 밴드 보기', group: 'q4', done: false },
+      { id: uid(), text: '쿠팡 비지니스 사이트 보기', group: 'q4', done: false },
+    ],
+    works: [
+      { id: uid(), name: '네이버광고', logs: [{ id: uid(), date: today(), text: '라셀, 모모, 라떼 광고소재 수정 필요' }] },
+    ],
+    accounts: [],
+    guides: [
+      { id: uid(), title: '법인카드 페이앱 등록방법', body: '페이앱에서 마이법인카드 등록 후\n\nhttps://wisebiz.bccard.com/app/corp/PubCardSmplProofInqActn.corp\n\n위 링크 접속 후 승인' },
+    ],
+  };
+}
+// 예전 2분류(now/later) → 4분류(q1~q4)
+function migrate(d) {
+  const out = Object.assign(seed(), d);
+  out.todos = (out.todos || []).map(t => ({ ...t, group: t.group === 'now' ? 'q1' : t.group === 'later' ? 'q2' : t.group }));
+  return out;
+}
+function load() {
+  try { const r = localStorage.getItem(KEY); if (r) return migrate(JSON.parse(r)); } catch (e) { saveFailed = true; }
+  return seed();
+}
+function save() {
+  try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { saveFailed = true; }
+  if (rev !== null) { clearTimeout(pushTimer); pushTimer = setTimeout(push, 300); }
+}
+let S = load();
+let tab = 'todo';
+
+/* ---------- 서버 동기화 (server.py 로 열었을 때만 동작) ---------- */
+const API = '/api/data';
+let rev = null;                       // null = 서버 없음 → 이 기기(브라우저)에만 저장
+let syncError = false, pushing = false, dirty = false, pushTimer = null;
+function setStatus() {
+  const el = document.getElementById('sync'); if (!el) return;
+  el.textContent = rev === null ? '○ 이 기기에만 저장' : syncError ? '⚠ 서버 연결 안 됨' : '● 서버와 동기화';
+}
+const cacheLocal = () => { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { } };
+const isTyping = () => { const a = document.activeElement; return a && a.matches('input,textarea') && a.value; };
+
+async function push() {
+  if (rev === null) return;
+  if (pushing) { dirty = true; return; }
+  pushing = true;
+  const wasError = syncError;
+  try {
+    do {
+      dirty = false;
+      const r = await fetch(API, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rev, data: S }) });
+      if (r.status === 409) {                      // 다른 기기가 먼저 저장함 → 최신 내용으로 교체
+        const j = await r.json(); rev = j.rev; S = migrate(j.data); cacheLocal();
+        syncError = false; dirty = false; pushing = false; render();
+        alert('다른 기기에서 먼저 바뀌어서 최신 내용을 불러왔어요. 방금 한 변경은 다시 해 주세요.');
+        return;
+      }
+      if (!r.ok) throw new Error('push');
+      rev = (await r.json()).rev; syncError = false;
+    } while (dirty);
+  } catch (e) { syncError = true; }
+  pushing = false;
+  if (wasError !== syncError) render(); else setStatus();
+}
+
+async function pull() {
+  if (pushing || rev === null && !location.protocol.startsWith('http')) return;
+  if (syncError) { await push(); if (syncError) return; }
+  try {
+    const r = await fetch(API, { cache: 'no-store' });
+    if (!r.ok) throw new Error('pull');
+    const j = await r.json();
+    rev = j.rev;
+    if (j.data === null) { await push(); render(); return; }   // 서버가 비어 있으면 지금 내용을 올림
+    const incoming = migrate(j.data);
+    if (JSON.stringify(incoming) !== JSON.stringify(S)) {
+      S = incoming; cacheLocal();
+      if (!document.getElementById('dlg').open && !isTyping()) render();
+    }
+    if (syncError) { syncError = false; render(); }
+  } catch (e) { if (rev !== null) { syncError = true; render(); } }
+  setStatus();
+}
+const main = document.getElementById('main');
+
+function render() {
+  if (drag && drag.started) { drag.rerender = true; return; }   // 끄는 중에는 화면을 다시 그리지 않음
+  document.querySelectorAll('.nav').forEach(b => b.classList.toggle('on', b.dataset.tab === tab));
+  document.getElementById('cnt').textContent = S.todos.filter(t => !t.done).length || '';
+  const warn = (saveFailed ? '<div class="warn">이 브라우저에서는 저장이 막혀 있어요. 입력한 내용이 사라질 수 있으니 "백업 저장"을 자주 눌러 주세요.</div>' : '') +
+    (syncError ? '<div class="warn">서버에 연결되지 않아요. 지금 적는 내용은 이 기기에 먼저 저장되고, 연결되면 자동으로 올라가요.</div>' : '');
+  main.innerHTML = warn + ({ todo: viewTodo, acc: viewAcc, guide: viewGuide }[tab])();
+  setStatus();
+}
+
+/* ---------- 할 일 ---------- */
+const QUAD = [
+  { g: 'q1', title: '① 오늘 바로', cls: 'now', hint: '중요 + 급함 · 오늘 안에 끝낼 것 (5개 이하로)' },
+  { g: 'q2', title: '② 계획해서 천천히', cls: 'later', hint: '중요 + 안 급함 · 날짜/요일을 정해서 일정에 넣기' },
+  { g: 'q3', title: '③ 빨리 처리 · 맡기기', cls: 'mid', hint: '급함 + 안 중요 · 몰아서 한 번에 처리' },
+  { g: 'q4', title: '④ 여유 있을 때', cls: 'low', hint: '안 급함 + 안 중요 · 한 달 넘게 안 했으면 지우기' },
+];
+function todoItem(t) {
+  return `<li class="${t.done ? 'done' : ''}" data-id="${t.id}">
+    <span class="grip" title="끌어서 옮기기">⋮⋮</span>
+    <input type="checkbox" data-act="toggle" ${t.done ? 'checked' : ''}>
+    <span class="t" title="더블클릭해서 수정">${esc(t.text)}</span>
+    <select class="mv" data-act="movesel" title="다른 칸으로 이동"><option value="">이동</option>${QUAD.filter(q => q.g !== t.group).map(q => `<option value="${q.g}">${q.title}</option>`).join('')}</select>
+    <button class="ic del" data-act="del-todo" title="삭제">×</button></li>`;
+}
+function todoBox(q) {
+  const items = S.todos.filter(t => t.group === q.g);
+  const sorted = [...items.filter(t => !t.done), ...items.filter(t => t.done)];
+  const open = items.filter(t => !t.done).length;
+  const over = q.g === 'q1' && open > 5 ? ` <span style="color:var(--danger)">· 지금 ${open}개, 줄여 보세요</span>` : '';
+  return `<section class="box" data-group="${q.g}"><h2 class="${q.cls}">${q.title}</h2>
+    <div class="hint">${q.hint}${over}</div>
+    <form data-add="${q.g}"><input type="text" placeholder="적고 Enter" autocomplete="off"></form>
+    <ul>${sorted.map(todoItem).join('') || '<div class="empty">비어 있어요</div>'}</ul></section>`;
+}
+function workCard(w) {
+  const logs = [...w.logs].reverse();
+  return `<article class="card" data-w="${w.id}">
+    <header><h3>${esc(w.name)}</h3>
+      <button class="ic" data-act="ren-work" title="이름 수정">✎</button>
+      <button class="ic del" data-act="del-work" title="업무 삭제">×</button></header>
+    <form data-log="${w.id}" class="row"><input type="text" placeholder="생긴 일 적기 + Enter" autocomplete="off"></form>
+    <ul>${logs.map(l => `<li data-id="${l.id}"><span class="date">${l.date.slice(5)}</span><span class="t">${linkify(l.text)}</span>
+      <button class="ic del" data-act="del-log" title="삭제">×</button></li>`).join('') || '<div class="empty">아직 기록이 없어요</div>'}</ul>
+  </article>`;
+}
+function viewTodo() {
+  const hasDone = S.todos.some(t => t.done);
+  return `<h1>할 일</h1>
+  <div class="matrix">
+    <div></div><div class="axis">🔥 급함</div><div class="axis">⏳ 안 급함</div>
+    <div class="axis rowl">중요</div>${todoBox(QUAD[0])}${todoBox(QUAD[1])}
+    <div class="axis rowl">안 중요</div>${todoBox(QUAD[2])}${todoBox(QUAD[3])}
+  </div>
+  ${hasDone ? '<div style="margin-top:8px"><button class="btn ghost" data-act="clear-done">완료한 항목 지우기</button></div>' : ''}
+  <div class="sec"><h2>업무별 기록</h2>
+    <form id="addWork" class="row"><input type="text" placeholder="업무 이름 (예: 네이버광고)" autocomplete="off" style="width:240px"><button class="btn">업무 추가</button></form></div>
+  <div class="works">${S.works.map(workCard).join('') || '<div class="empty">업무를 추가해 보세요</div>'}</div>`;
+}
+
+/* ---------- 아이디 / 비번 ---------- */
+function viewAcc() {
+  return `<h1>아이디 / 비번</h1>
+  <div class="warn">이 파일을 연 브라우저 안에만 저장돼요(암호화는 안 됨). 다른 사람이 쓰는 컴퓨터에서는 사용하지 마세요.</div>
+  <div class="toolbar"><input type="search" id="q" placeholder="검색 (사이트, 아이디, 메모)"><button class="btn" data-act="acc-add">+ 추가</button></div>
+  <div class="list">${S.accounts.map(a => `<article class="card" data-id="${a.id}" data-q="${esc((a.site + ' ' + a.uid + ' ' + a.memo).toLowerCase())}">
+    <header><h3>${esc(a.site)}</h3>
+      <button class="ic" data-act="acc-edit" title="수정">✎</button>
+      <button class="ic del" data-act="acc-del" title="삭제">×</button></header>
+    <div class="kv">
+      <span class="k">아이디</span><span class="mono">${esc(a.uid)}</span><button class="ic" data-act="copy-id">복사</button>
+      <span class="k">비밀번호</span><span class="mono pw">••••••••</span>
+      <span><button class="ic" data-act="show-pw">보기</button><button class="ic" data-act="copy-pw">복사</button></span>
+    </div>
+    ${a.memo ? `<div class="body small">${linkify(a.memo)}</div>` : ''}
+  </article>`).join('') || '<div class="empty">아직 없어요. "+ 추가"를 눌러 보세요</div>'}</div>`;
+}
+
+/* ---------- 방법 모음 ---------- */
+function viewGuide() {
+  return `<h1>방법 모음</h1>
+  <div class="toolbar"><input type="search" id="q" placeholder="검색"><button class="btn" data-act="g-add">+ 추가</button></div>
+  <div class="list">${S.guides.map(g => `<article class="card" data-id="${g.id}" data-q="${esc((g.title + ' ' + g.body).toLowerCase())}">
+    <details><summary>${esc(g.title)}</summary>
+      <div class="body">${linkify(g.body)}</div>
+      <div style="margin-top:10px"><button class="ic" data-act="g-edit">✎ 수정</button><button class="ic del" data-act="g-del">× 삭제</button></div>
+    </details></article>`).join('') || '<div class="empty">아직 없어요. "+ 추가"를 눌러 보세요</div>'}</div>`;
+}
+
+/* ---------- 입력 대화상자 ---------- */
+function openForm(title, fields, values, onSave) {
+  const f = document.getElementById('dlgForm');
+  f.innerHTML = `<h2>${esc(title)}</h2>` + fields.map(x => `<label>${esc(x.label)}</label>` +
+    (x.type === 'textarea'
+      ? `<textarea name="${x.k}">${esc(values[x.k] || '')}</textarea>`
+      : `<input type="text" name="${x.k}" value="${esc(values[x.k] || '')}" autocomplete="off">`)).join('') +
+    `<div class="actions"><button type="button" class="btn ghost" id="dlgCancel">취소</button><button class="btn">저장</button></div>`;
+  const dlg = document.getElementById('dlg');
+  f.onsubmit = e => {
+    e.preventDefault();
+    const out = {}; fields.forEach(x => out[x.k] = f.elements[x.k].value.trim());
+    if (fields[0] && !out[fields[0].k]) return;
+    onSave(out); save(); dlg.close(); render();
+  };
+  document.getElementById('dlgCancel').onclick = () => dlg.close();
+  dlg.showModal();
+  f.elements[fields[0].k].focus();
+}
+const ACC_FIELDS = [{ k: 'site', label: '사이트 / 서비스' }, { k: 'uid', label: '아이디' }, { k: 'pw', label: '비밀번호' }, { k: 'memo', label: '메모', type: 'textarea' }];
+const GUIDE_FIELDS = [{ k: 'title', label: '제목 (예: 법인카드 페이앱 등록방법)' }, { k: 'body', label: '방법 / 순서 / 링크', type: 'textarea' }];
+
+function copy(text, btn) {
+  const done = () => { const o = btn.textContent; btn.textContent = '복사됨'; setTimeout(() => btn.textContent = o, 900); };
+  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(done, () => fallback());
+  else fallback();
+  function fallback() {
+    const ta = document.createElement('textarea'); ta.value = text; document.body.appendChild(ta); ta.select();
+    try { document.execCommand('copy'); done(); } catch (e) { } ta.remove();
+  }
+}
+
+/* ---------- 이벤트 ---------- */
+document.querySelectorAll('.nav').forEach(b => b.onclick = () => { tab = b.dataset.tab; render(); });
+
+main.addEventListener('submit', e => {
+  e.preventDefault();
+  const f = e.target, input = f.querySelector('input'), v = input.value.trim();
+  if (!v) return;
+  if (f.dataset.add) S.todos.push({ id: uid(), text: v, group: f.dataset.add, done: false });
+  else if (f.dataset.log) S.works.find(w => w.id === f.dataset.log).logs.push({ id: uid(), date: today(), text: v });
+  else if (f.id === 'addWork') S.works.push({ id: uid(), name: v, logs: [] });
+  save(); render();
+  const again = f.dataset.add ? `form[data-add="${f.dataset.add}"] input` : f.dataset.log ? `form[data-log="${f.dataset.log}"] input` : '#addWork input';
+  const el = main.querySelector(again); if (el) el.focus();
+});
+
+main.addEventListener('change', e => {
+  const act = e.target.dataset.act;
+  if (act !== 'toggle' && act !== 'movesel') return;
+  const t = S.todos.find(x => x.id === e.target.closest('[data-id]').dataset.id);
+  if (act === 'toggle') t.done = e.target.checked;
+  else if (e.target.value) t.group = e.target.value;
+  save(); render();
+});
+
+/* ---------- 끌어서 옮기기 (마우스 + 터치) ----------
+   항목의 어디를 잡고 끌어도 다른 칸으로 옮기거나 칸 안에서 순서를 바꿀 수 있어요.
+   마우스: 바로 끌기 / 터치: 꾹 눌렀다가 끌기 (⋮⋮ 손잡이는 꾹 누르지 않고 바로 끌기) */
+let drag = null;
+function dragTarget(x, y) {
+  const el = document.elementFromPoint(x, y);
+  const box = el && el.closest('.box[data-group]');
+  if (!box) return null;
+  const items = [...box.querySelectorAll('li[data-id]')].filter(li => li.dataset.id !== drag.id);
+  const before = items.find(li => { const r = li.getBoundingClientRect(); return y < r.top + r.height / 2; });
+  const last = items.length ? items[items.length - 1] : null;
+  return { box, group: box.dataset.group, beforeEl: before || null, beforeId: before ? before.dataset.id : null, afterEl: before ? null : last };
+}
+function markTarget(t) {
+  main.querySelectorAll('.over').forEach(x => x.classList.remove('over'));
+  main.querySelectorAll('.drop-before,.drop-after').forEach(x => x.classList.remove('drop-before', 'drop-after'));
+  if (!t) return;
+  t.box.classList.add('over');
+  if (t.beforeEl) t.beforeEl.classList.add('drop-before');
+  else if (t.afterEl) t.afterEl.classList.add('drop-after');
+}
+function startDrag() {
+  const li = drag.li, r = li.getBoundingClientRect(), g = li.cloneNode(true);
+  // 끌려오는 복사본이 원래 항목과 똑같은 크기·위치에서 시작하도록 맞춤 (잡은 지점이 그대로 커서 아래에 있음)
+  const cs = getComputedStyle(li);
+  g.classList.add('ghost');
+  g.style.width = r.width + 'px';
+  g.style.borderTop = '0';
+  g.style.paddingTop = (parseFloat(cs.borderTopWidth) + parseFloat(cs.paddingTop)) + 'px';
+  drag.dx = drag.x - r.left; drag.dy = drag.y - r.top;
+  document.body.appendChild(g);
+  drag.ghost = g; drag.started = true;
+  li.classList.add('dragging'); document.body.classList.add('dragging-now');
+  const sel = window.getSelection && window.getSelection(); if (sel) sel.removeAllRanges();
+  drag.scroller = setInterval(() => {            // 화면 위/아래 끝으로 끌면 자동 스크롤
+    if (drag.cy == null) return;
+    const step = drag.cy < 70 ? -14 : drag.cy > window.innerHeight - 70 ? 14 : 0;
+    if (step) { window.scrollBy(0, step); moveDrag(drag.lx, drag.ly); }   // 스크롤된 만큼 놓을 자리도 다시 계산
+  }, 16);
+}
+function endDrag(apply) {
+  if (!drag) return;
+  const d = drag; drag = null;
+  clearInterval(d.scroller); clearTimeout(d.timer);
+  if (d.ghost) d.ghost.remove();
+  d.li.classList.remove('dragging'); document.body.classList.remove('dragging-now'); markTarget(null);
+  const todo = d.started && apply && d.target ? S.todos.find(x => x.id === d.id) : null;
+  if (todo) {
+    S.todos = S.todos.filter(x => x !== todo);
+    todo.group = d.target.group;
+    const i = d.target.beforeId ? S.todos.findIndex(x => x.id === d.target.beforeId) : -1;
+    if (i >= 0) S.todos.splice(i, 0, todo); else S.todos.push(todo);
+    save(); render();
+  } else if (d.rerender) render();
+}
+function moveDrag(x, y) {
+  drag.cy = y;
+  drag.ghost.style.transform = `translate(${x - drag.dx}px,${y - drag.dy}px)`;
+  drag.target = dragTarget(x, y);
+  markTarget(drag.target);
+}
+main.addEventListener('pointerdown', e => {
+  if (tab !== 'todo' || drag || (e.pointerType === 'mouse' && e.button !== 0)) return;
+  const li = e.target.closest('li[data-id]');
+  if (!li || !li.closest('.box[data-group]')) return;
+  if (e.target.closest('input,select,button,a')) return;
+  // 손가락으로 글자를 잡을 때는 꾹 눌러야 시작해요 (그냥 쓸어 넘기면 스크롤)
+  const hold = !e.target.closest('.grip') && e.pointerType !== 'mouse';
+  drag = { id: li.dataset.id, li, x: e.clientX, y: e.clientY, lx: e.clientX, ly: e.clientY, pid: e.pointerId, started: false, target: null, cy: null, hold };
+  if (hold) drag.timer = setTimeout(() => {
+    if (!drag || drag.started) return;
+    drag.x = drag.lx; drag.y = drag.ly;
+    startDrag(); moveDrag(drag.lx, drag.ly);
+    if (navigator.vibrate) navigator.vibrate(12);
+  }, 350);
+});
+document.addEventListener('pointermove', e => {
+  if (!drag || e.pointerId !== drag.pid) return;
+  drag.lx = e.clientX; drag.ly = e.clientY;
+  if (!drag.started) {
+    if (Math.hypot(e.clientX - drag.x, e.clientY - drag.y) < (drag.hold ? 8 : 6)) return;
+    if (drag.hold) { clearTimeout(drag.timer); drag = null; return; }   // 꾹 누르기 전에 움직임 → 스크롤로 보고 취소
+    startDrag();
+  }
+  e.preventDefault();
+  moveDrag(e.clientX, e.clientY);
+});
+// 끄는 동안에는 화면 스크롤과 길게 누르기 메뉴를 막아요
+document.addEventListener('touchmove', e => { if (drag && drag.started && e.cancelable) e.preventDefault(); }, { passive: false });
+document.addEventListener('contextmenu', e => { if (drag) e.preventDefault(); });
+document.addEventListener('pointerup', e => { if (drag && e.pointerId === drag.pid) endDrag(true); });
+document.addEventListener('pointercancel', e => { if (drag && e.pointerId === drag.pid) endDrag(false); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') endDrag(false); });
+
+main.addEventListener('dblclick', e => {
+  const span = e.target.closest('li[data-id] > .t'); if (!span || tab !== 'todo') return;
+  const t = S.todos.find(x => x.id === span.closest('li').dataset.id); if (!t) return;
+  const v = prompt('수정', t.text);
+  if (v && v.trim()) { t.text = v.trim(); save(); render(); }
+});
+
+main.addEventListener('input', e => {
+  if (e.target.id !== 'q') return;
+  const q = e.target.value.trim().toLowerCase();
+  main.querySelectorAll('[data-q]').forEach(c => c.style.display = c.dataset.q.includes(q) ? '' : 'none');
+});
+
+main.addEventListener('click', e => {
+  const b = e.target.closest('button[data-act]'); if (!b) return;
+  const act = b.dataset.act;
+  const holder = b.closest('[data-id]');
+  const id = holder && holder.dataset.id;
+  const work = b.closest('[data-w]');
+  switch (act) {
+    case 'del-todo': S.todos = S.todos.filter(x => x.id !== id); break;
+    case 'clear-done': S.todos = S.todos.filter(x => !x.done); break;
+    case 'ren-work': {
+      const w = S.works.find(x => x.id === work.dataset.w), v = prompt('업무 이름', w.name);
+      if (v && v.trim()) w.name = v.trim(); break;
+    }
+    case 'del-work': {
+      const w = S.works.find(x => x.id === work.dataset.w);
+      if (!confirm(`"${w.name}" 업무와 기록을 모두 삭제할까요?`)) return;
+      S.works = S.works.filter(x => x.id !== w.id); break;
+    }
+    case 'del-log': { const w = S.works.find(x => x.id === work.dataset.w); w.logs = w.logs.filter(l => l.id !== id); break; }
+
+    case 'acc-add': return openForm('계정 추가', ACC_FIELDS, {}, v => S.accounts.push({ id: uid(), ...v }));
+    case 'acc-edit': { const a = S.accounts.find(x => x.id === id); return openForm('계정 수정', ACC_FIELDS, a, v => Object.assign(a, v)); }
+    case 'acc-del': {
+      const a = S.accounts.find(x => x.id === id);
+      if (!confirm(`"${a.site}" 계정을 삭제할까요?`)) return;
+      S.accounts = S.accounts.filter(x => x.id !== id); break;
+    }
+    case 'copy-id': return copy(S.accounts.find(x => x.id === id).uid, b);
+    case 'copy-pw': return copy(S.accounts.find(x => x.id === id).pw, b);
+    case 'show-pw': {
+      const el = holder.querySelector('.pw'), a = S.accounts.find(x => x.id === id);
+      const shown = el.dataset.shown === '1';
+      el.textContent = shown ? '••••••••' : a.pw; el.dataset.shown = shown ? '0' : '1';
+      b.textContent = shown ? '보기' : '숨김'; return;
+    }
+
+    case 'g-add': return openForm('방법 추가', GUIDE_FIELDS, {}, v => S.guides.push({ id: uid(), ...v }));
+    case 'g-edit': { const g = S.guides.find(x => x.id === id); return openForm('방법 수정', GUIDE_FIELDS, g, v => Object.assign(g, v)); }
+    case 'g-del': {
+      const g = S.guides.find(x => x.id === id);
+      if (!confirm(`"${g.title}"을(를) 삭제할까요?`)) return;
+      S.guides = S.guides.filter(x => x.id !== id); break;
+    }
+    default: return;
+  }
+  save(); render();
+});
+
+/* ---------- 백업 ---------- */
+document.getElementById('export').onclick = () => {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([JSON.stringify(S, null, 2)], { type: 'application/json' }));
+  a.download = `todo-backup-${today()}.json`; a.click(); URL.revokeObjectURL(a.href);
+};
+const file = document.getElementById('file');
+document.getElementById('import').onclick = () => file.click();
+file.onchange = () => {
+  const f = file.files[0]; if (!f) return;
+  const r = new FileReader();
+  r.onload = () => {
+    try {
+      const d = JSON.parse(r.result);
+      if (!confirm('지금 내용을 백업 파일 내용으로 바꿀까요?')) return;
+      S = migrate(d); save(); render();
+    } catch (e) { alert('백업 파일을 읽을 수 없어요.'); }
+  };
+  r.readAsText(f); file.value = '';
+};
+
+render();
+if (location.protocol.startsWith('http')) {
+  pull();
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) pull(); });
+  setInterval(() => { if (!document.hidden) pull(); }, 30000);
+}
+</script>
+</body>
+</html>
