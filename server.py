@@ -6,6 +6,7 @@
 """
 import json
 import os
+import re
 import shutil
 import socket
 import ssl
@@ -31,6 +32,9 @@ TS_CLI = os.environ.get("TAILSCALE_CLI", "/Applications/Tailscale.app/Contents/M
 # Tailscale 이 발급하는 인증서를 쓰고, 만료 전에 자동으로 갱신합니다. 비우면 http.
 CERT_DOMAIN = os.environ.get("CERT_DOMAIN", "")
 CERT_DIR = os.path.join(HERE, ".certs")
+HISTORY = os.path.join(HERE, "history")
+HISTORY_KEEP = 500          # 저장 기록을 최근 몇 번까지 보관할지
+MIN_CLIENT = 2              # 이보다 오래된 화면(새로고침 안 한 탭)은 저장을 거부 → 예전 내용으로 덮어쓰는 사고 방지
 lock = threading.Lock()
 _whois = {}  # ip -> (확인한 시각, 계정)
 
@@ -67,6 +71,24 @@ def write_store(obj):
     with os.fdopen(fd, "w", encoding="utf-8") as f:
         json.dump(obj, f, ensure_ascii=False)
     os.replace(tmp, DATA)
+    save_history(obj)
+
+
+def save_history(obj):
+    """저장할 때마다 번호가 붙은 사본을 history/ 에 남겨서, 나중에 어느 시점으로든 되돌릴 수 있게 함."""
+    try:
+        os.makedirs(HISTORY, exist_ok=True)
+        with open(os.path.join(HISTORY, "data-%06d.json" % obj["rev"]), "w", encoding="utf-8") as f:
+            json.dump(obj, f, ensure_ascii=False)
+        files = sorted(f for f in os.listdir(HISTORY) if re.match(r"^data-\d{6}\.json$", f))
+        for old in files[:-HISTORY_KEEP]:
+            os.remove(os.path.join(HISTORY, old))
+    except Exception as e:
+        log(f"기록 보관 실패: {e}")
+
+
+def log(msg):
+    print(f"{time.strftime('%m-%d %H:%M:%S')} {msg}", file=sys.stderr, flush=True)
 
 
 def fetch_cert():
@@ -124,7 +146,7 @@ class Server(ThreadingHTTPServer):
         return None
 
     def handle_error(self, request, client_address):  # https 에 http 로 접속하는 등의 오류를 한 줄로만 기록
-        print(f"연결 오류 {client_address[0]}: {sys.exc_info()[1]}", file=sys.stderr, flush=True)
+        log(f"연결 오류 {client_address[0]}: {sys.exc_info()[1]}")
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -155,7 +177,7 @@ class Handler(BaseHTTPRequestHandler):
     def _deny(self):
         ip = self.client_address[0]
         who = self.headers.get("Tailscale-User-Login") or _whois.get(ip, (0, None))[1]
-        print(f"접속 거부 {ip} (계정: {who})", file=sys.stderr, flush=True)
+        log(f"접속 거부 {ip} (계정: {who})")
         self._send(403, {"error": "forbidden"})
 
     def do_GET(self):
@@ -186,6 +208,10 @@ class Handler(BaseHTTPRequestHandler):
                 raise ValueError("data")
         except Exception:
             return self._send(400, {"error": "bad request"})
+        who = self.headers.get("Tailscale-User-Login") or _whois.get(self.client_address[0], (0, None))[1]
+        if body.get("v", 1) < MIN_CLIENT:
+            log(f"저장 거부(오래된 화면) {self.client_address[0]} ({who}) — 새로고침 필요")
+            return self._send(426, {"error": "outdated client", "message": "페이지를 새로고침해 주세요"})
         with lock:
             cur = read_store()
             if base != cur["rev"]:
@@ -193,6 +219,9 @@ class Handler(BaseHTTPRequestHandler):
             new = {"rev": cur["rev"] + 1, "data": data}
             write_store(new)
             self._send(200, {"rev": new["rev"]})
+        log(f"저장 rev {new['rev']} ← {self.client_address[0]} ({who}) "
+            f"할 일 {len(data.get('todos', []))} 업무 {len(data.get('works', []))} "
+            f"방법 {len(data.get('guides', []))} 계정 {len(data.get('accounts', []))}")
 
     def log_message(self, *args):
         pass

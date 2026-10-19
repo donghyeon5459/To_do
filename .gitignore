@@ -7,3 +7,5 @@ server.log
 .certs/
 __pycache__/
 backup.log
+history/
+restore-points/

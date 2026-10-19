@@ -144,100 +144,160 @@ function seed() {
   };
 }
 // 예전 2분류(now/later) → 4분류(q1~q4)
+const EMPTY = () => ({ todos: [], works: [], accounts: [], guides: [] });
 function migrate(d) {
-  const out = Object.assign(seed(), d);
+  const out = Object.assign(EMPTY(), d);
   out.todos = (out.todos || []).map(t => ({ ...t, group: t.group === 'now' ? 'q1' : t.group === 'later' ? 'q2' : t.group }));
   return out;
 }
 function load() {
   try { const r = localStorage.getItem(KEY); if (r) return migrate(JSON.parse(r)); } catch (e) { saveFailed = true; }
-  return seed();
+  // 서버와 연결되는 화면은 예시 데이터를 섞지 않음 (서버 내용에 가짜 항목이 올라가는 것 방지). 파일로 연 경우만 예시를 보여줌
+  return location.protocol.startsWith('http') ? EMPTY() : seed();
 }
 function save() {
   try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { saveFailed = true; }
   setUnsynced(true);                      // 서버에 올라갈 때까지 "아직 못 올린 변경"으로 표시
-  if (rev !== null) { clearTimeout(pushTimer); pushTimer = setTimeout(push, 300); }
+  editVersion++;
+  scheduleSync();
 }
 let S = load();
 let tab = 'todo';
 
-/* ---------- 서버 동기화 (server.py 로 열었을 때만 동작) ---------- */
+/* ---------- 서버 동기화 (server.py 로 열었을 때만 동작) ----------
+   저장할 때마다 "서버의 최신 내용을 읽고 → 내 변경과 합치고 → 올리는" 순서로 동작해요.
+   그래서 오래된 화면이나 인터넷이 끊겼던 기기에서 적어도 다른 기기의 내용을 덮어쓰지 않고 합쳐져요. */
 const API = '/api/data';
-let rev = null;                       // null = 서버 없음 → 이 기기(브라우저)에만 저장
-let syncError = false, pushing = false, dirty = false, pushTimer = null, tried = false;
-// 이 기기에 서버로 아직 못 올린 변경이 있는지. 새로고침해도 기억해서, 서버 내용이 내 변경을 조용히 덮어쓰지 못하게 함.
-// (표시가 없는 예전 데이터가 있으면 "있을 수 있음"으로 보고 처음 연결할 때 물어봄)
-const UNSYNCED_KEY = KEY + '_unsynced';
-let unsynced = false;
+const HAS_SERVER = location.protocol.startsWith('http');
+const SYNC_VERSION = 2;               // 서버는 이보다 낮은 버전(새로고침 안 한 옛 화면)의 저장을 거부해요
+let rev = null;                       // 서버에서 마지막으로 본 번호. null = 서버에 연결된 적 없음
+let syncError = false, syncing = false, again = false, syncTimer = null, tried = false, editVersion = 0;
+const UNSYNCED_KEY = KEY + '_unsynced', BASE_KEY = KEY + '_base';
+let unsynced = false;                 // 이 기기에 서버로 아직 못 올린 변경이 있는지 (새로고침해도 기억)
+let base = null;                      // 서버와 마지막으로 맞춘 내용 = 합칠 때의 기준
 try {
   const f = localStorage.getItem(UNSYNCED_KEY);
-  unsynced = f === '1' || (f === null && localStorage.getItem(KEY) !== null);
+  unsynced = f === '1' || (f === null && localStorage.getItem(KEY) !== null);   // 표시 없는 예전 데이터는 "있을 수 있음"
+  base = JSON.parse(localStorage.getItem(BASE_KEY) || 'null');
 } catch (e) { }
 function setUnsynced(v) {
   unsynced = v;
   try { localStorage.setItem(UNSYNCED_KEY, v ? '1' : '0'); } catch (e) { }
 }
+const saveBase = () => { try { localStorage.setItem(BASE_KEY, JSON.stringify(base)); } catch (e) { } };
 function setStatus() {
   const el = document.getElementById('sync'); if (!el) return;
-  el.textContent = rev === null ? '○ 이 기기에만 저장' : syncError ? '⚠ 서버 연결 안 됨' : '● 서버와 동기화';
+  el.textContent = !HAS_SERVER || rev === null ? '○ 이 기기에만 저장' : syncError ? '⚠ 서버 연결 안 됨' : '● 서버와 동기화';
 }
 const cacheLocal = () => { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { } };
 const isTyping = () => { const a = document.activeElement; return a && a.matches('input,textarea') && a.value; };
 
-async function push() {
-  if (rev === null) return;
-  if (pushing) { dirty = true; return; }
-  pushing = true;
-  const wasError = syncError;
-  try {
-    do {
-      dirty = false;
-      const r = await fetch(API, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rev, data: S }) });
-      if (r.status === 409) {                      // 다른 기기가 먼저 저장함 → 최신 내용으로 교체
-        const j = await r.json(); rev = j.rev; S = migrate(j.data); cacheLocal(); setUnsynced(false);
-        syncError = false; dirty = false; pushing = false; render();
-        alert('다른 기기에서 먼저 바뀌어서 최신 내용을 불러왔어요. 방금 한 변경은 다시 해 주세요.');
-        return;
-      }
-      if (!r.ok) throw new Error('push');
-      rev = (await r.json()).rev; syncError = false;
-    } while (dirty);
-    setUnsynced(false);
-  } catch (e) { syncError = true; }
-  pushing = false;
-  if (wasError !== syncError) render(); else setStatus();
+// <merge>
+const clone = x => JSON.parse(JSON.stringify(x));
+const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+const byId = list => new Map(list.map(x => [x.id, x]));
+// 세 갈래 합치기: base(마지막으로 맞춘 내용) / local(이 기기) / remote(서버 최신)
+//  - 내가 새로 추가한 것 → 추가, 서버에서 새로 생긴 것 → 유지
+//  - 내가 지운 것 → 지움, 서버에서 지운 것 → 지움
+//  - 같은 항목을 내가 바꿨으면 내 것, 안 바꿨으면 서버 것
+function mergeList(base, local, remote) {
+  const bm = byId(base), lm = byId(local), rm = byId(remote);
+  const want = new Set();
+  for (const x of remote) if (lm.has(x.id) || !bm.has(x.id)) want.add(x.id);
+  for (const x of local) if (!rm.has(x.id) && !bm.has(x.id)) want.add(x.id);
+  const final = id => {
+    const ri = rm.get(id), li = lm.get(id), bi = bm.get(id);
+    if (!ri) return li;
+    if (!li || !bi) return ri;
+    return same(li, bi) ? ri : li;
+  };
+  // 내가 끌어서 순서를 바꿨으면 내 순서, 아니면 서버 순서
+  const reordered = base.map(x => x.id).filter(id => lm.has(id)).join() !== local.map(x => x.id).filter(id => bm.has(id)).join();
+  const order = reordered ? [...local, ...remote] : [...remote, ...local];
+  const seen = new Set(), out = [];
+  for (const { id } of order) if (want.has(id) && !seen.has(id)) { seen.add(id); out.push(final(id)); }
+  return out;
 }
+function mergeWorks(base, local, remote) {
+  const bm = byId(base), lm = byId(local), rm = byId(remote);
+  const strip = w => { const { logs, ...rest } = w; return rest; };
+  return mergeList(base.map(strip), local.map(strip), remote.map(strip)).map(w => ({
+    ...w, logs: mergeList((bm.get(w.id) || {}).logs || [], (lm.get(w.id) || {}).logs || [], (rm.get(w.id) || {}).logs || []),
+  }));
+}
+function mergeState(b, l, r) {
+  b = b || {};
+  return {
+    todos: mergeList(b.todos || [], l.todos || [], r.todos || []),
+    works: mergeWorks(b.works || [], l.works || [], r.works || []),
+    accounts: mergeList(b.accounts || [], l.accounts || [], r.accounts || []),
+    guides: mergeList(b.guides || [], l.guides || [], r.guides || []),
+  };
+}
+// </merge>
 
-async function pull() {
-  if (pushing || !location.protocol.startsWith('http')) return;
-  if (syncError) { await push(); if (syncError) return; }
-  let changed = false;
+function scheduleSync(ms = 300) {
+  if (!HAS_SERVER) return;
+  clearTimeout(syncTimer); syncTimer = setTimeout(() => sync(), ms);
+}
+async function put(data) {
+  const r = await fetch(API, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ v: SYNC_VERSION, rev, data }) });
+  if (r.status === 409) return false;                // 그 사이 다른 기기가 저장함 → 다시 읽어서 합침
+  if (!r.ok) throw new Error('put ' + r.status);
+  rev = (await r.json()).rev;
+  return true;
+}
+// replace=true 는 "백업 불러오기" 용: 서버 내용을 지금 화면 내용으로 통째로 바꿈
+async function sync(replace = false) {
+  if (!HAS_SERVER) return;
+  if (syncing) { again = true; return; }
+  syncing = true;
+  const wasError = syncError, hadRev = rev !== null;
+  let changed = false, done = false;
   try {
-    const r = await fetch(API, { cache: 'no-store' });
-    if (!r.ok) throw new Error('pull');
-    const j = await r.json();
-    const firstSync = rev === null;
-    rev = j.rev;
-    if (j.data === null) { await push(); changed = true; }      // 서버가 비어 있으면 지금 내용을 올림
-    else {
-      const incoming = migrate(j.data);
-      if (JSON.stringify(incoming) !== JSON.stringify(S)) {
-        if (!unsynced) { S = incoming; cacheLocal(); changed = true; }
-        else if (firstSync) {
-          // 이 기기에 서버로 못 올린 변경이 있음 → 서버 내용으로 조용히 덮어쓰지 않고 물어봄
-          if (confirm('이 기기에 서버에 올리지 못한 변경이 있어요.\n\n[확인] 이 기기 내용을 서버에 올리기\n[취소] 서버 내용으로 바꾸기 (이 기기의 변경은 사라져요)')) await push();
-          else { S = incoming; cacheLocal(); setUnsynced(false); }
-          changed = true;
-        }
-        // firstSync 가 아니면 이미 올리는 중이거나 곧 올라가므로 그대로 둠
-      } else if (unsynced) setUnsynced(false);
+    for (let attempt = 0; attempt < 5 && !done; attempt++) {
+      const r = await fetch(API, { cache: 'no-store' });
+      if (!r.ok) throw new Error('get ' + r.status);
+      const j = await r.json();
+      rev = j.rev;
+      const remote = j.data ? migrate(j.data) : null;
+      const v0 = editVersion;
+      if (!remote) {                                              // 서버가 비어 있음 → 내 내용을 올림
+        const sent = clone(S);
+        if (!(await put(sent))) continue;
+        base = sent; saveBase(); changed = true; done = true;
+        if (v0 === editVersion) setUnsynced(false); else again = true;
+        break;
+      }
+      if (replace) base = clone(remote);
+      if (!unsynced && !replace) {                                // 이 기기에 올릴 변경 없음 → 서버 내용을 그대로 받음
+        if (!same(remote, S)) { S = remote; cacheLocal(); changed = true; }
+        base = clone(remote); saveBase(); done = true;
+        break;
+      }
+      if (base === null && unsynced) {                            // 예전 방식으로 쓰던 기기가 처음 합쳐질 때: 안전 사본을 한 번 남김
+        try { if (localStorage.getItem(KEY + '_before_merge') === null) localStorage.setItem(KEY + '_before_merge', JSON.stringify(S)); } catch (e) { }
+      }
+      const merged = mergeState(base, S, remote);
+      if (!same(merged, S)) { S = merged; cacheLocal(); changed = true; }
+      const sent = clone(merged);
+      if (same(sent, remote)) {                                   // 서버와 이미 같음 → 올릴 것 없음
+        base = sent; saveBase(); done = true;
+        if (v0 === editVersion) setUnsynced(false);
+        break;
+      }
+      if (!(await put(sent))) continue;                           // 충돌 → 다시 읽어서 합치기
+      base = sent; saveBase(); changed = true; done = true;
+      if (v0 === editVersion) setUnsynced(false); else again = true;   // 올리는 사이에 또 고쳤으면 한 번 더
     }
-    if (syncError) { syncError = false; changed = true; }
-  } catch (e) { if (rev !== null) { syncError = true; changed = true; } }
-  tried = true;
-  if (changed || !document.getElementById('sync').textContent) {
+    if (!done) again = true;                                      // 계속 충돌하면 잠시 뒤 다시
+    syncError = false;
+  } catch (e) { syncError = true; }
+  tried = true; syncing = false;
+  if (changed || wasError !== syncError || (!hadRev && rev !== null)) {
     if (!document.getElementById('dlg').open && !isTyping()) render(); else setStatus();
   } else setStatus();
+  if (again) { again = false; scheduleSync(syncError ? 5000 : 50); }
 }
 const main = document.getElementById('main');
 
@@ -555,25 +615,28 @@ file.onchange = () => {
   const r = new FileReader();
   r.onload = async () => {
     let d;
-    try { d = JSON.parse(r.result); if (!d || typeof d !== 'object') throw 0; } catch (e) { alert('백업 파일을 읽을 수 없어요.'); return; }
+    try {
+      d = JSON.parse(r.result);
+      if (d && d.data && !d.todos) d = d.data;           // 서버/구글 드라이브 백업 파일 형식({rev, data})도 받음
+      if (!d || typeof d !== 'object' || !Array.isArray(d.todos)) throw 0;
+    } catch (e) { alert('백업 파일을 읽을 수 없어요.'); return; }
     if (!confirm('지금 내용을 백업 파일 내용으로 바꿀까요?')) return;
-    const online = location.protocol.startsWith('http');
-    if (online && rev === null) await pull();            // 서버 연결부터 다시 시도
-    S = migrate(d); save(); render();
-    if (!online) return;
-    if (rev === null) { alert('서버에 연결되지 않아서 이 기기에만 저장됐어요.\n새로고침한 뒤 다시 불러와 주세요.'); return; }
-    while (pushing) await new Promise(res => setTimeout(res, 50));
-    clearTimeout(pushTimer); await push();                // 서버에 실제로 올라갔는지 확인하고 알려줌
-    alert(syncError ? '서버에 저장하지 못했어요. 잠시 후 다시 시도해 주세요.' : '서버에 저장됐어요. 다른 기기에서도 보여요.');
+    S = migrate(d); cacheLocal(); setUnsynced(true); editVersion++; render();
+    if (!HAS_SERVER) return;
+    clearTimeout(syncTimer);
+    while (syncing) await new Promise(res => setTimeout(res, 50));
+    await sync(true);                                    // 서버 내용을 이 내용으로 통째로 바꾸고, 실제로 저장됐는지 확인
+    alert(syncError || rev === null ? '서버에 저장하지 못했어요. 잠시 뒤 자동으로 다시 시도하지만, 화면을 닫지 말고 확인해 주세요.' : '서버에 저장됐어요. 다른 기기에서도 보여요.');
   };
   r.readAsText(f); file.value = '';
 };
 
 render();
-if (location.protocol.startsWith('http')) {
-  pull();
-  document.addEventListener('visibilitychange', () => { if (!document.hidden) pull(); });
-  setInterval(() => { if (!document.hidden) pull(); }, 30000);
+if (HAS_SERVER) {
+  sync();
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) sync(); });
+  window.addEventListener('online', () => sync());
+  setInterval(() => { if (!document.hidden) sync(); }, 30000);
 }
 </script>
 </body>
