@@ -16,6 +16,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 SRC = os.path.join(HERE, "data.json")
 NAME = re.compile(r"^todo-(\d{4}-\d{2}-\d{2})\.json$")
 
+print("hello")
 
 def main():
     if len(sys.argv) < 2:
